@@ -11,12 +11,89 @@ const juce::Colour accentColour { 0xff4de0b5 };
 const juce::Colour primaryTextColour { 0xffedf2f7 };
 const juce::Colour secondaryTextColour { 0xff8d98a8 };
 const juce::Colour gridColour { 0xff303844 };
+
+struct AudioTypeOption
+{
+    int categoryId;
+    const char* name;
+    rexmix::NodeType type;
+};
+
+constexpr AudioTypeOption audioTypeOptions[]
+{
+    { 1, "Kick", rexmix::NodeType::kick },
+    { 1, "Snare", rexmix::NodeType::snare },
+    { 1, "Hi-Hat", rexmix::NodeType::hiHat },
+    { 1, "Clap", rexmix::NodeType::clap },
+    { 1, "Tom", rexmix::NodeType::tom },
+    { 1, "Percussion", rexmix::NodeType::percussion },
+    { 2, "808", rexmix::NodeType::bass808 },
+    { 2, "Synth Bass", rexmix::NodeType::synthBass },
+    { 2, "Bass Guitar", rexmix::NodeType::bassGuitar },
+    { 2, "Sub Bass", rexmix::NodeType::subBass },
+    { 3, "Piano", rexmix::NodeType::piano },
+    { 3, "Guitar", rexmix::NodeType::guitar },
+    { 3, "Acoustic Guitar", rexmix::NodeType::acousticGuitar },
+    { 3, "Electric Guitar", rexmix::NodeType::electricGuitar },
+    { 3, "Synth", rexmix::NodeType::synth },
+    { 3, "Lead", rexmix::NodeType::lead },
+    { 3, "Pad", rexmix::NodeType::pad },
+    { 3, "Strings", rexmix::NodeType::strings },
+    { 3, "Keys", rexmix::NodeType::keys },
+    { 4, "Lead Vocal", rexmix::NodeType::leadVocal },
+    { 4, "Backing Vocal", rexmix::NodeType::backingVocal },
+    { 4, "Vocal Chop", rexmix::NodeType::vocalChop },
+    { 4, "Spoken", rexmix::NodeType::spoken },
+    { 5, "Impact", rexmix::NodeType::impact },
+    { 5, "Risers", rexmix::NodeType::riser },
+    { 5, "Sweep", rexmix::NodeType::sweep },
+    { 5, "Texture", rexmix::NodeType::texture },
+    { 5, "Other", rexmix::NodeType::fxOther },
+    { 6, "Ambience", rexmix::NodeType::ambience },
+    { 6, "Other", rexmix::NodeType::other }
+};
+
 }
 
 RexMixAudioProcessorEditor::RexMixAudioProcessorEditor (RexMixAudioProcessor& audioProcessor)
     : AudioProcessorEditor (audioProcessor), processor (audioProcessor)
 {
-    setSize (760, 500);
+    setSize (760, 540);
+
+    audioTypeLabel.setText ("AUDIO TYPE", juce::dontSendNotification);
+    audioTypeLabel.setColour (juce::Label::textColourId, secondaryTextColour);
+    audioTypeLabel.setFont (juce::Font (juce::FontOptions { 10.0f, juce::Font::bold }));
+    addAndMakeVisible (audioTypeLabel);
+
+    categoryBox.addItem ("Drums", 1);
+    categoryBox.addItem ("Bass", 2);
+    categoryBox.addItem ("Instruments", 3);
+    categoryBox.addItem ("Vocals", 4);
+    categoryBox.addItem ("FX", 5);
+    categoryBox.addItem ("Other", 6);
+
+    categoryBox.setColour (juce::ComboBox::backgroundColourId, panelColour);
+    categoryBox.setColour (juce::ComboBox::textColourId, primaryTextColour);
+    categoryBox.setColour (juce::ComboBox::outlineColourId, gridColour);
+    categoryBox.setColour (juce::ComboBox::arrowColourId, accentColour);
+    categoryBox.onChange = [this] { categoryChanged(); };
+    addAndMakeVisible (categoryBox);
+
+    categorySeparator.setText (">", juce::dontSendNotification);
+    categorySeparator.setColour (juce::Label::textColourId, secondaryTextColour);
+    categorySeparator.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (categorySeparator);
+
+    audioTypeBox.setColour (juce::ComboBox::backgroundColourId, panelColour);
+    audioTypeBox.setColour (juce::ComboBox::textColourId, primaryTextColour);
+    audioTypeBox.setColour (juce::ComboBox::outlineColourId, gridColour);
+    audioTypeBox.setColour (juce::ComboBox::arrowColourId, accentColour);
+    audioTypeBox.onChange = [this] { audioTypeChanged(); };
+    addAndMakeVisible (audioTypeBox);
+
+    const auto categoryId = getCategoryId (processor.getAudioType());
+    categoryBox.setSelectedId (categoryId, juce::dontSendNotification);
+    populateAudioTypes (categoryId);
     startTimerHz (15);
 }
 
@@ -56,7 +133,7 @@ void RexMixAudioProcessorEditor::paint (juce::Graphics& graphics)
 
     const auto cardWidth = (static_cast<float> (getWidth()) - 54.0f) * 0.5f;
     constexpr float cardHeight = 54.0f;
-    constexpr float firstRowY = 78.0f;
+    constexpr float firstRowY = 111.0f;
     constexpr float rowGap = 9.0f;
     const auto leftX = 22.0f;
     const auto rightX = leftX + cardWidth + 10.0f;
@@ -104,11 +181,15 @@ void RexMixAudioProcessorEditor::paint (juce::Graphics& graphics)
                     "PEAK LEVEL",
                     peakText);
 
-    drawSpectrum (graphics, { 22.0f, 281.0f, static_cast<float> (getWidth()) - 44.0f, 197.0f });
+    drawSpectrum (graphics, { 22.0f, 314.0f, static_cast<float> (getWidth()) - 44.0f, 204.0f });
 }
 
 void RexMixAudioProcessorEditor::resized()
 {
+    audioTypeLabel.setBounds (22, 75, 78, 24);
+    categoryBox.setBounds (105, 73, 145, 27);
+    categorySeparator.setBounds (254, 73, 20, 27);
+    audioTypeBox.setBounds (278, 73, 205, 27);
 }
 
 void RexMixAudioProcessorEditor::timerCallback()
@@ -122,6 +203,71 @@ void RexMixAudioProcessorEditor::timerCallback()
     }
 
     repaint();
+}
+
+void RexMixAudioProcessorEditor::categoryChanged()
+{
+    if (! updatingAudioTypeControls)
+        populateAudioTypes (categoryBox.getSelectedId());
+}
+
+void RexMixAudioProcessorEditor::audioTypeChanged()
+{
+    if (updatingAudioTypeControls || audioTypeBox.getSelectedId() <= 0)
+        return;
+
+    const auto type = static_cast<rexmix::NodeType> (audioTypeBox.getSelectedId());
+    const auto categoryId = categoryBox.getSelectedId();
+    if (categoryId >= 1 && categoryId <= static_cast<int> (rememberedTypes.size()))
+        rememberedTypes[static_cast<size_t> (categoryId - 1)] = type;
+
+    processor.setAudioType (type);
+}
+
+void RexMixAudioProcessorEditor::populateAudioTypes (int categoryId)
+{
+    if (categoryId < 1 || categoryId > static_cast<int> (rememberedTypes.size()))
+        return;
+
+    updatingAudioTypeControls = true;
+    audioTypeBox.clear (juce::dontSendNotification);
+
+    auto firstTypeId = 0;
+    auto rememberedTypeId = 0;
+    const auto rememberedType = rememberedTypes[static_cast<size_t> (categoryId - 1)];
+
+    for (const auto& option : audioTypeOptions)
+    {
+        if (option.categoryId != categoryId)
+            continue;
+
+        const auto typeId = static_cast<int> (option.type);
+        if (firstTypeId == 0)
+            firstTypeId = typeId;
+
+        if (option.type == rememberedType)
+            rememberedTypeId = typeId;
+
+        audioTypeBox.addItem (option.name, typeId);
+    }
+
+    const auto selectedTypeId = rememberedTypeId != 0 ? rememberedTypeId : firstTypeId;
+    audioTypeBox.setSelectedId (selectedTypeId, juce::dontSendNotification);
+    updatingAudioTypeControls = false;
+
+    if (selectedTypeId != 0)
+        processor.setAudioType (static_cast<rexmix::NodeType> (selectedTypeId));
+}
+
+int RexMixAudioProcessorEditor::getCategoryId (rexmix::NodeType type) const noexcept
+{
+    for (const auto& option : audioTypeOptions)
+    {
+        if (option.type == type)
+            return option.categoryId;
+    }
+
+    return 6;
 }
 
 void RexMixAudioProcessorEditor::drawMetricCard (juce::Graphics& graphics,

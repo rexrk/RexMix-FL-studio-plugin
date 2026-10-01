@@ -62,6 +62,8 @@ public:
     float getPeakDb(int channel) const noexcept;
     float getSpectrumDb(int bin) const noexcept;
     bool isMasterConnected() const noexcept;
+    rexmix::NodeType getAudioType() const noexcept;
+    void setAudioType (rexmix::NodeType type) noexcept;
 
 private:
     void timerCallback() override;

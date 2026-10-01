@@ -105,44 +105,73 @@ NodePublisher::~NodePublisher()
 
 bool NodePublisher::tryConnect() noexcept
 {
-    if (isConnected())
+    auto* currentRegion = region.load (std::memory_order_acquire);
+    if (connected.load (std::memory_order_acquire)
+        && currentRegion != nullptr
+        && validateHeader()
+        && masterIsPresent (*currentRegion))
         return true;
 
-    if (region.load (std::memory_order_acquire) == nullptr)
+    connected.store (false, std::memory_order_release);
+    if (activePublishers.load (std::memory_order_acquire) != 0)
+        return false;
+
+    if (currentRegion != nullptr)
     {
-        if (objectName[0] == L'\0')
-            return false;
-
-        const auto mapping = OpenFileMappingW (FILE_MAP_ALL_ACCESS, FALSE, objectName.data());
-        if (mapping == nullptr)
-            return false;
-
-        const auto mappedView = static_cast<SharedMemoryRegion*> (
-            MapViewOfFile (mapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof (SharedMemoryRegion)));
-
-        if (mappedView == nullptr)
+        if (slotIndex.load (std::memory_order_acquire) < maxNodes)
         {
-            CloseHandle (mapping);
+            cleanupAttachment();
             return false;
         }
 
-        mappingHandle = mapping;
-        region.store (mappedView, std::memory_order_release);
-
-        if (! validateHeader())
+        if (! validateHeader() || ! masterIsPresent (*currentRegion))
         {
-            disconnect();
+            cleanupAttachment();
             return false;
         }
+
+        if (! claimSlot())
+            return false;
+
+        connected.store (true, std::memory_order_release);
+        return true;
     }
 
-    return claimSlot();
+    if (objectName[0] == L'\0')
+        return false;
+
+    const auto mapping = OpenFileMappingW (FILE_MAP_ALL_ACCESS, FALSE, objectName.data());
+    if (mapping == nullptr)
+        return false;
+
+    const auto mappedView = static_cast<SharedMemoryRegion*> (
+        MapViewOfFile (mapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof (SharedMemoryRegion)));
+
+    if (mappedView == nullptr)
+    {
+        CloseHandle (mapping);
+        return false;
+    }
+
+    mappingHandle = mapping;
+    region.store (mappedView, std::memory_order_release);
+
+    if (! validateHeader() || ! masterIsPresent (*mappedView))
+    {
+        cleanupAttachment();
+        return false;
+    }
+
+    if (! claimSlot())
+        return false;
+
+    connected.store (true, std::memory_order_release);
+    return true;
 }
 
 bool NodePublisher::isConnected() const noexcept
 {
-    return region.load (std::memory_order_acquire) != nullptr
-        && slotIndex.load (std::memory_order_acquire) < maxNodes;
+    return connected.load (std::memory_order_acquire);
 }
 
 std::uint32_t NodePublisher::getSlotIndex() const noexcept
@@ -162,20 +191,33 @@ std::uint64_t NodePublisher::getSessionId() const noexcept
 
 bool NodePublisher::publish (const NodeSlot& frame) noexcept
 {
-    if (! isConnected())
+    if (! connected.load (std::memory_order_acquire))
         return false;
+
+    activePublishers.fetch_add (1, std::memory_order_acq_rel);
+    if (! connected.load (std::memory_order_acquire))
+    {
+        activePublishers.fetch_sub (1, std::memory_order_release);
+        return false;
+    }
 
     auto* mappedRegion = region.load (std::memory_order_acquire);
     const auto currentSlot = slotIndex.load (std::memory_order_acquire);
     if (mappedRegion == nullptr || currentSlot >= maxNodes)
+    {
+        activePublishers.fetch_sub (1, std::memory_order_release);
         return false;
+    }
 
     auto& destination = mappedRegion->nodes[currentSlot];
     std::uint64_t evenSequence = 0;
     if (! acquireSlotWrite (destination, evenSequence))
+    {
+        activePublishers.fetch_sub (1, std::memory_order_release);
         return false;
+    }
 
-    destination.nodeType = frame.nodeType;
+    destination.nodeType = nodeType.load (std::memory_order_relaxed);
     destination.nodeId = nodeId;
     destination.registrationSessionId = sessionId;
     destination.samplePosition = frame.samplePosition;
@@ -194,10 +236,60 @@ bool NodePublisher::publish (const NodeSlot& frame) noexcept
     destination.reserved[0] = 0;
     destination.reserved[1] = 0;
     finishSlotWrite (destination, evenSequence);
+    activePublishers.fetch_sub (1, std::memory_order_release);
     return true;
 }
 
+void NodePublisher::setNodeType (NodeType type) noexcept
+{
+    nodeType.store (type, std::memory_order_relaxed);
+    nodeTypeUpdatePending.store (true, std::memory_order_release);
+    retryPendingNodeTypeUpdate();
+}
+
+void NodePublisher::retryPendingNodeTypeUpdate() noexcept
+{
+    if (! nodeTypeUpdatePending.load (std::memory_order_acquire) || ! isConnected())
+        return;
+
+    auto* mappedRegion = region.load (std::memory_order_acquire);
+    const auto currentSlot = slotIndex.load (std::memory_order_acquire);
+    if (mappedRegion == nullptr || currentSlot >= maxNodes)
+        return;
+
+    auto& slot = mappedRegion->nodes[currentSlot];
+    std::uint64_t evenSequence = 0;
+    if (! acquireSlotWrite (slot, evenSequence))
+        return;
+
+    slot.nodeType = nodeType.load (std::memory_order_relaxed);
+    finishSlotWrite (slot, evenSequence);
+    nodeTypeUpdatePending.store (false, std::memory_order_release);
+}
+
+NodeType NodePublisher::getNodeType() const noexcept
+{
+    return nodeType.load (std::memory_order_relaxed);
+}
+
 void NodePublisher::disconnect() noexcept
+{
+    connected.store (false, std::memory_order_release);
+    if (activePublishers.load (std::memory_order_acquire) != 0)
+        return;
+
+    cleanupAttachment();
+}
+
+bool NodePublisher::masterIsPresent (const SharedMemoryRegion& mappedRegion) const noexcept
+{
+    auto* presence = reinterpret_cast<volatile LONG*> (
+        const_cast<std::uint32_t*> (
+            &mappedRegion.header.reserved[masterPresenceReservedIndex]));
+    return InterlockedCompareExchange (presence, 0, 0) == 1;
+}
+
+void NodePublisher::cleanupAttachment() noexcept
 {
     const auto currentSlot = slotIndex.exchange (maxNodes, std::memory_order_acq_rel);
     auto* mappedRegion = region.exchange (nullptr, std::memory_order_acq_rel);
@@ -213,9 +305,7 @@ void NodePublisher::disconnect() noexcept
     }
 
     if (mappedRegion != nullptr)
-    {
         UnmapViewOfFile (mappedRegion);
-    }
 
     if (mappingHandle != nullptr)
     {
@@ -263,7 +353,7 @@ bool NodePublisher::claimSlot() noexcept
         }
 
         slot.active = reservedSlotState;
-        slot.nodeType = NodeType::audio;
+        slot.nodeType = nodeType.load (std::memory_order_relaxed);
         slot.nodeId = nodeId;
         slot.registrationSessionId = sessionId;
         slot.samplePosition = -1;

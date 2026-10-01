@@ -2,6 +2,8 @@
 
 #include "PluginProcessor.h"
 
+#include <array>
+
 class RexMixAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                          private juce::Timer
 {
@@ -14,6 +16,10 @@ public:
 
 private:
     void timerCallback() override;
+    void categoryChanged();
+    void audioTypeChanged();
+    void populateAudioTypes (int categoryId);
+    int getCategoryId (rexmix::NodeType type) const noexcept;
     void drawMetricCard (juce::Graphics&,
                          juce::Rectangle<float>,
                          const juce::String& title,
@@ -23,6 +29,19 @@ private:
     static float applyBallistics (float displayedDb, float measuredDb) noexcept;
 
     RexMixAudioProcessor& processor;
+    juce::Label audioTypeLabel;
+    juce::ComboBox categoryBox;
+    juce::Label categorySeparator;
+    juce::ComboBox audioTypeBox;
+    std::array<rexmix::NodeType, 6> rememberedTypes {
+        rexmix::NodeType::kick,
+        rexmix::NodeType::bass808,
+        rexmix::NodeType::piano,
+        rexmix::NodeType::leadVocal,
+        rexmix::NodeType::impact,
+        rexmix::NodeType::other
+    };
+    bool updatingAudioTypeControls = false;
     std::array<float, 2> displayedRmsDb { -100.0f, -100.0f };
     std::array<float, 2> displayedPeakDb { -100.0f, -100.0f };
 

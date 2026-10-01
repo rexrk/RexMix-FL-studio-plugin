@@ -9,13 +9,43 @@ const juce::Colour primaryTextColour { 0xffedf2f7 };
 const juce::Colour secondaryTextColour { 0xff8d98a8 };
 const juce::Colour gridColour { 0xff303844 };
 
-juce::String nodeTypeName (rexmix::NodeType type)
+juce::String audioTypeName (rexmix::NodeType type)
 {
     switch (type)
     {
         case rexmix::NodeType::audio:      return "Audio";
         case rexmix::NodeType::instrument: return "Instrument";
         case rexmix::NodeType::midi:       return "MIDI";
+        case rexmix::NodeType::kick:      return "Kick";
+        case rexmix::NodeType::snare:     return "Snare";
+        case rexmix::NodeType::hiHat:     return "Hi-Hat";
+        case rexmix::NodeType::clap:      return "Clap";
+        case rexmix::NodeType::tom:       return "Tom";
+        case rexmix::NodeType::percussion:return "Percussion";
+        case rexmix::NodeType::bass808:   return "Bass / 808";
+        case rexmix::NodeType::synthBass: return "Bass / Synth Bass";
+        case rexmix::NodeType::bassGuitar:return "Bass / Bass Guitar";
+        case rexmix::NodeType::subBass:   return "Bass / Sub Bass";
+        case rexmix::NodeType::piano:     return "Piano";
+        case rexmix::NodeType::guitar:    return "Guitar";
+        case rexmix::NodeType::acousticGuitar: return "Acoustic Guitar";
+        case rexmix::NodeType::electricGuitar: return "Electric Guitar";
+        case rexmix::NodeType::synth:     return "Synth";
+        case rexmix::NodeType::lead:      return "Lead";
+        case rexmix::NodeType::pad:       return "Pad";
+        case rexmix::NodeType::strings:   return "Strings";
+        case rexmix::NodeType::keys:      return "Keys";
+        case rexmix::NodeType::leadVocal: return "Vocal / Lead Vocal";
+        case rexmix::NodeType::backingVocal: return "Vocal / Backing Vocal";
+        case rexmix::NodeType::vocalChop: return "Vocal / Vocal Chop";
+        case rexmix::NodeType::spoken:    return "Vocal / Spoken";
+        case rexmix::NodeType::impact:    return "Impact";
+        case rexmix::NodeType::riser:     return "Risers";
+        case rexmix::NodeType::sweep:     return "Sweep";
+        case rexmix::NodeType::texture:   return "Texture";
+        case rexmix::NodeType::fxOther:   return "FX Other";
+        case rexmix::NodeType::ambience:  return "Ambience";
+        case rexmix::NodeType::other:     return "Other";
         case rexmix::NodeType::unknown:    break;
     }
 
@@ -44,11 +74,9 @@ void RexMixNodeRegistryView::paint (juce::Graphics& graphics)
     graphics.fillRoundedRectangle (headerBounds.toFloat(), 5.0f);
     graphics.setColour (secondaryTextColour);
     graphics.setFont (juce::Font (juce::FontOptions { 11.0f, juce::Font::bold }));
-    graphics.drawText ("SLOT", 12, 0, 54, 30, juce::Justification::centredLeft);
-    graphics.drawText ("NODE ID", 77, 0, 165, 30, juce::Justification::centredLeft);
-    graphics.drawText ("TYPE", 255, 0, 100, 30, juce::Justification::centredLeft);
-    graphics.drawText ("SAMPLE", 365, 0, 130, 30, juce::Justification::centredLeft);
-    graphics.drawText ("FRAME", 510, 0, 100, 30, juce::Justification::centredLeft);
+    graphics.drawText ("AUDIO TYPE", 12, 0, 330, 30, juce::Justification::centredLeft);
+    graphics.drawText ("SAMPLE POSITION", 370, 0, 250, 30,
+                       juce::Justification::centredLeft);
 
     auto rowY = 36;
     for (std::uint32_t index = 0; index < rexmix::maxNodes; ++index)
@@ -64,23 +92,14 @@ void RexMixNodeRegistryView::paint (juce::Graphics& graphics)
         graphics.setColour (rowY % 2 == 0 ? panelColour : backgroundColour);
         graphics.fillRoundedRectangle (row, 4.0f);
 
-        graphics.setColour (accentColour);
-        graphics.setFont (juce::Font (juce::FontOptions { 12.0f }));
-        graphics.drawText (juce::String (static_cast<int> (index + 1)),
-                           12, rowY, 54, 25, juce::Justification::centredLeft);
-        graphics.drawText (juce::String::toHexString (
-                               static_cast<juce::int64> (node.nodeId)).paddedLeft ('0', 16),
-                           77, rowY, 165, 25, juce::Justification::centredLeft);
-
         graphics.setColour (primaryTextColour);
-        graphics.drawText (nodeTypeName (node.nodeType),
-                           255, rowY, 100, 25, juce::Justification::centredLeft);
+        graphics.setFont (juce::Font (juce::FontOptions { 12.0f }));
+        graphics.drawText (audioTypeName (node.nodeType),
+                           12, rowY, 330, 25, juce::Justification::centredLeft);
         graphics.drawText (node.samplePosition >= 0
                                ? juce::String (static_cast<juce::int64> (node.samplePosition))
                                : "--",
-                           365, rowY, 130, 25, juce::Justification::centredLeft);
-        graphics.drawText (juce::String (static_cast<juce::uint64> (node.frameSequence)),
-                           510, rowY, 100, 25, juce::Justification::centredLeft);
+                           370, rowY, 250, 25, juce::Justification::centredLeft);
 
         rowY += 27;
     }
@@ -99,10 +118,13 @@ RexMixMasterAudioProcessorEditor::RexMixMasterAudioProcessorEditor (
     RexMixMasterAudioProcessor& audioProcessor)
     : AudioProcessorEditor (audioProcessor), processor (audioProcessor)
 {
-    setSize (760, 500);
+    setSize (760, 660);
     registryViewport.setViewedComponent (&registryView, false);
     registryViewport.setScrollBarsShown (true, false);
     addAndMakeVisible (registryViewport);
+    analyzeMixButton.setEnabled (false);
+    analyzeMixButton.onClick = [this] { processor.analyzeMix(); };
+    addAndMakeVisible (analyzeMixButton);
     refreshRegistry();
     startTimerHz (4);
 }
@@ -166,16 +188,66 @@ void RexMixMasterAudioProcessorEditor::paint (juce::Graphics& graphics)
 
     graphics.setColour (gridColour);
     graphics.drawHorizontalLine (201, 22.0f, static_cast<float> (getWidth()) - 22.0f);
+
+    graphics.setColour (panelColour);
+    graphics.fillRoundedRectangle (22.0f, 430.0f,
+                                   static_cast<float> (getWidth()) - 44.0f, 210.0f, 7.0f);
+    graphics.setColour (accentColour);
+    graphics.setFont (juce::Font (juce::FontOptions { 13.0f, juce::Font::bold }));
+    graphics.drawText ("CAPTURE", 38, 443, getWidth() - 76, 22,
+                       juce::Justification::centredLeft);
+
+    const auto& capture = processor.getCaptureSession();
+    const auto captureState = capture.getState();
+    const auto stateText = captureState == rexmix::CaptureState::capturing
+                         ? "Capturing..."
+                         : captureState == rexmix::CaptureState::complete
+                             ? "Capture Complete"
+                             : captureState == rexmix::CaptureState::partial
+                                 ? "Playback Stopped"
+                                 : captureState == rexmix::CaptureState::analyzed
+                                     ? "Capture ready for analysis."
+                                     : "Ready to Capture";
+    const auto detailText = captureState == rexmix::CaptureState::ready
+                          ? "Play your mix to capture up to 16 bars."
+                          : captureState == rexmix::CaptureState::partial
+                              ? "Partial capture: "
+                                    + juce::String (capture.getCapturedBarCount()) + " / 16 bars"
+                                    + "    Nodes Captured: "
+                                    + juce::String (static_cast<int> (
+                                          capture.getCapturedNodeCount()))
+                              : captureState == rexmix::CaptureState::complete
+                                  ? "16 / 16 bars captured"
+                                        + juce::String ("    Nodes Captured: ")
+                                        + juce::String (static_cast<int> (
+                                              capture.getCapturedNodeCount()))
+                                  : captureState == rexmix::CaptureState::analyzed
+                                      ? "The current capture is available to analysis."
+                                      : "Bar " + juce::String (capture.getCurrentBar()) + " / 16"
+                                            + "    Nodes Captured: "
+                                            + juce::String (static_cast<int> (
+                                                  capture.getCapturedNodeCount()));
+
+    graphics.setColour (primaryTextColour);
+    graphics.setFont (juce::Font (juce::FontOptions { 18.0f, juce::Font::bold }));
+    graphics.drawText (stateText, 38, 475, getWidth() - 76, 30,
+                       juce::Justification::centredLeft);
+    graphics.setColour (secondaryTextColour);
+    graphics.setFont (juce::Font (juce::FontOptions { 13.0f }));
+    graphics.drawText (detailText, 38, 511, getWidth() - 76, 24,
+                       juce::Justification::centredLeft);
 }
 
 void RexMixMasterAudioProcessorEditor::resized()
 {
-    registryViewport.setBounds (22, 210, getWidth() - 44, getHeight() - 232);
+    registryViewport.setBounds (22, 210, getWidth() - 44, 205);
+    analyzeMixButton.setBounds (getWidth() - 190, 590, 145, 32);
 }
 
 void RexMixMasterAudioProcessorEditor::timerCallback()
 {
     refreshRegistry();
+    analyzeMixButton.setEnabled (processor.getCaptureSession().canAnalyze());
     repaint();
 }
 

@@ -13,13 +13,44 @@ inline constexpr std::uint32_t spectrumBinCount = 64;
 inline constexpr std::uint16_t protocolVersion = 1;
 inline constexpr std::uint16_t structureVersion = 1;
 inline constexpr std::uint32_t validState = 0x524D584D;
+inline constexpr std::size_t masterPresenceReservedIndex = 0;
 
 enum class NodeType : std::uint32_t
 {
     unknown = 0,
     audio = 1,
     instrument = 2,
-    midi = 3
+    midi = 3,
+    kick = 100,
+    snare = 101,
+    hiHat = 102,
+    clap = 103,
+    tom = 104,
+    percussion = 105,
+    bass808 = 106,
+    synthBass = 107,
+    bassGuitar = 108,
+    subBass = 109,
+    piano = 110,
+    guitar = 111,
+    acousticGuitar = 112,
+    electricGuitar = 113,
+    synth = 114,
+    lead = 115,
+    pad = 116,
+    strings = 117,
+    keys = 118,
+    leadVocal = 119,
+    backingVocal = 120,
+    vocalChop = 121,
+    spoken = 122,
+    impact = 123,
+    riser = 124,
+    sweep = 125,
+    texture = 126,
+    fxOther = 127,
+    ambience = 128,
+    other = 129
 };
 
 struct alignas(8) SharedMemoryHeader
@@ -83,16 +114,25 @@ public:
     std::uint64_t getSessionId() const noexcept;
 
     bool publish (const NodeSlot& frame) noexcept;
+    void setNodeType (NodeType type) noexcept;
+    void retryPendingNodeTypeUpdate() noexcept;
+    NodeType getNodeType() const noexcept;
     void disconnect() noexcept;
 
 private:
     bool validateHeader() const noexcept;
     bool claimSlot() noexcept;
+    bool masterIsPresent (const SharedMemoryRegion& mappedRegion) const noexcept;
+    void cleanupAttachment() noexcept;
 
     void* mappingHandle = nullptr;
     std::array<wchar_t, 128> objectName {};
     std::atomic<SharedMemoryRegion*> region { nullptr };
     std::atomic<std::uint32_t> slotIndex { maxNodes };
+    std::atomic<std::uint32_t> activePublishers { 0 };
+    std::atomic<bool> connected { false };
+    std::atomic<NodeType> nodeType { NodeType::other };
+    std::atomic<bool> nodeTypeUpdatePending { false };
     std::uint64_t nodeId = 0;
     std::uint64_t sessionId = 0;
     std::uint64_t frameSequence = 0;

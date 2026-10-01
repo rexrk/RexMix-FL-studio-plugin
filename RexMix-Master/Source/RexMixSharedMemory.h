@@ -13,13 +13,44 @@ inline constexpr std::uint32_t spectrumBinCount = 64;
 inline constexpr std::uint16_t protocolVersion = 1;
 inline constexpr std::uint16_t structureVersion = 1;
 inline constexpr std::uint32_t validState = 0x524D584D;
+inline constexpr std::size_t masterPresenceReservedIndex = 0;
 
 enum class NodeType : std::uint32_t
 {
     unknown = 0,
     audio = 1,
     instrument = 2,
-    midi = 3
+    midi = 3,
+    kick = 100,
+    snare = 101,
+    hiHat = 102,
+    clap = 103,
+    tom = 104,
+    percussion = 105,
+    bass808 = 106,
+    synthBass = 107,
+    bassGuitar = 108,
+    subBass = 109,
+    piano = 110,
+    guitar = 111,
+    acousticGuitar = 112,
+    electricGuitar = 113,
+    synth = 114,
+    lead = 115,
+    pad = 116,
+    strings = 117,
+    keys = 118,
+    leadVocal = 119,
+    backingVocal = 120,
+    vocalChop = 121,
+    spoken = 122,
+    impact = 123,
+    riser = 124,
+    sweep = 125,
+    texture = 126,
+    fxOther = 127,
+    ambience = 128,
+    other = 129
 };
 
 struct alignas(8) SharedMemoryHeader

@@ -224,7 +224,7 @@ void RexMixAudioProcessor::publishAnalysisFrame (double sumOfProducts,
         return;
 
     rexmix::NodeSlot frame {};
-    frame.nodeType = rexmix::NodeType::audio;
+    frame.nodeType = nodePublisher.getNodeType();
     frame.samplePosition = hasSamplePosition() ? getSamplePosition() : -1;
     frame.sampleRate = static_cast<float> (getHostSampleRate());
 
@@ -265,6 +265,7 @@ void RexMixAudioProcessor::publishAnalysisFrame (double sumOfProducts,
 void RexMixAudioProcessor::timerCallback()
 {
     nodePublisher.tryConnect();
+    nodePublisher.retryPendingNodeTypeUpdate();
 
     const auto timeText = hasPlaybackTime()
                         ? juce::String (getPlaybackTimeSeconds(), 3) + "s"
@@ -411,6 +412,16 @@ float RexMixAudioProcessor::getSpectrumDb (int bin) const noexcept
 bool RexMixAudioProcessor::isMasterConnected() const noexcept
 {
     return nodePublisher.isConnected();
+}
+
+rexmix::NodeType RexMixAudioProcessor::getAudioType() const noexcept
+{
+    return nodePublisher.getNodeType();
+}
+
+void RexMixAudioProcessor::setAudioType (rexmix::NodeType type) noexcept
+{
+    nodePublisher.setNodeType (type);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

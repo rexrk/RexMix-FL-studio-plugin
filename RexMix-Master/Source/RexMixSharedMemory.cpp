@@ -121,6 +121,13 @@ std::uint64_t readSequence (const std::uint64_t& sequence) noexcept
     return static_cast<std::uint64_t> (
         InterlockedCompareExchange64 (const_cast<volatile LONG64*> (interlockedSequence), 0, 0));
 }
+
+void setMasterPresence (rexmix::SharedMemoryRegion& region, std::uint32_t present) noexcept
+{
+    auto* presence = reinterpret_cast<volatile LONG*> (
+        &region.header.reserved[rexmix::masterPresenceReservedIndex]);
+    InterlockedExchange (presence, static_cast<LONG> (present));
+}
 }
 
 namespace rexmix
@@ -140,7 +147,10 @@ SharedMemory::SharedMemory (const wchar_t* requestedName)
 SharedMemory::~SharedMemory()
 {
     if (region != nullptr)
+    {
+        setMasterPresence (*region, 0);
         UnmapViewOfFile (region);
+    }
 
     if (mappingHandle != nullptr)
         CloseHandle (static_cast<HANDLE> (mappingHandle));
@@ -249,5 +259,6 @@ void SharedMemory::openOrInitialize()
     }
 
     region = static_cast<SharedMemoryRegion*> (mappedView.release());
+    setMasterPresence (*region, 1);
 }
 }

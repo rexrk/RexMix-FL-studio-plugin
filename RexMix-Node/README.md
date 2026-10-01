@@ -1,6 +1,6 @@
-# RexMix Node v0.3
+# RexMix Node v0.4.1
 
-A JUCE 8 CMake VST3 audio effect for Windows x64. It passes audio through unchanged with no added latency and displays host timing, per-channel RMS/peak, and a live FFT spectrum. When RexMix Master is available, it registers in the existing shared-memory registry and publishes the latest analysis frame.
+A JUCE 8 CMake VST3 audio effect for Windows x64. It passes audio through unchanged with no added latency and displays host timing, per-channel RMS/peak, and a live FFT spectrum. When RexMix Master is available, it registers in the existing shared-memory registry, publishes the latest analysis frame, and sends the selected Audio Type.
 
 ## Requirements
 
@@ -15,15 +15,15 @@ By default, CMake looks for JUCE at `%USERPROFILE%\source\JUCE`. Override it wit
 Run these commands from a Visual Studio 2022 Developer PowerShell:
 
 ```powershell
-cmake -S . -B build-v0.3 -G "Visual Studio 17 2022" -A x64
-cmake --build build-v0.3 --config Release --target RexMixNode_VST3 RexMixNodeSharedMemoryTest
-ctest --test-dir build-v0.3 -C Release --output-on-failure
+cmake -S . -B build-v0.4.1 -G "Visual Studio 17 2022" -A x64
+cmake --build build-v0.4.1 --config Release --target RexMixNode_VST3 RexMixNodeSharedMemoryTest
+ctest --test-dir build-v0.4.1 -C Release --output-on-failure
 ```
 
 The VST3 bundle is generated at:
 
 ```text
-build-v0.3\RexMixNode_artefacts\Release\VST3\RexMix Node.vst3
+build-v0.4.1\RexMixNode_artefacts\Release\VST3\RexMix Node.vst3
 ```
 
 The build does not copy or install the plugin into FL Studio.
@@ -40,8 +40,10 @@ When the host reports that transport is stopped, RMS, peak, and spectrum analysi
 
 ## Master shared memory
 
-The Node uses the exact RexMix Master v0.1 protocol: `Local\RexMix_SharedMemory_v1`, protocol/structure version 1, 64-byte header, 64 slots of 360 bytes, and 23,104 bytes total. The Node only calls `OpenFileMappingW`; it never creates or initializes the region. If Master is not present, analysis continues locally and the UI reports **MASTER MEMORY: NOT FOUND**. A message-thread timer retries connection every 500 ms; connection and slot discovery are never attempted from `processBlock()`.
+The Node uses the exact RexMix Master protocol: `Local\RexMix_SharedMemory_v1`, protocol/structure version 1, 64-byte header, 64 slots of 360 bytes, and 23,104 bytes total. Header reserved word 0 is the Master-presence flag (`1` while Master owns the mapping, `0` during normal unload); its use leaves all structure sizes and slot offsets unchanged. The Node only calls `OpenFileMappingW`; it never creates or initializes the region. If Master is not present, analysis continues locally and the UI reports **MASTER MEMORY: NOT FOUND**. The existing message-thread timer checks presence and retries connection every 500 ms; connection checks/reconnection are never performed from `processBlock()`.
 
-Each instance claims an available slot using a one-shot interlocked sequence-counter compare/exchange. It registers a per-instance Node ID and session ID, then publishes a latest-frame snapshot while playing. Frames include the host sample position (or -1 when unavailable), timestamp in Unix-epoch nanoseconds, monotonically increasing per-instance frame sequence, sample rate, linear RMS/peak, stereo width/correlation, and 64 logarithmically spaced FFT magnitudes. Pitch and transient strength remain zero because v0.2 does not calculate those metrics. The Node publishes no raw audio or history.
+Each instance claims an available slot using a one-shot interlocked sequence-counter compare/exchange. It registers a per-instance Node ID and session ID, then publishes a latest-frame snapshot while playing. Frames include the host sample position (or -1 when unavailable), timestamp in Unix-epoch nanoseconds, monotonically increasing per-instance frame sequence, sample rate, linear RMS/peak, stereo width/correlation, and 64 logarithmically spaced FFT magnitudes. Pitch and transient strength remain zero because the Node does not calculate those metrics. The Node publishes no raw audio or history.
 
-The CTest fixture creates an isolated Master-compatible mapping for tests. It checks that a missing mapping is not created by the Node, multiple instances claim different slots, frames publish with increasing sequences, and disconnect frees only the instance's slot. DAW/FL Studio communication must still be verified with RexMix Master loaded in the same Windows session.
+The Audio Type control uses separate Category and Type dropdowns; the specific type remains selected per category while the instance/editor is open. The default is **Other > Other**. Stable `NodeType` IDs are 100–129, in the order: Kick, Snare, Hi-Hat, Clap, Tom, Percussion, 808, Synth Bass, Bass Guitar, Sub Bass, Piano, Guitar, Acoustic Guitar, Electric Guitar, Synth, Lead, Pad, Strings, Keys, Lead Vocal, Backing Vocal, Vocal Chop, Spoken, Impact, Risers, Sweep, Texture, FX Other, Ambience, Other. The chosen type is written to the existing `NodeSlot::nodeType`; selecting a type attempts a single non-blocking slot update immediately and later frames also carry the current selection.
+
+The CTest fixture creates an isolated Master-compatible mapping for tests. It checks missing/available Master status, presence loss and restoration, reconnection, multiple independent Node slots and Audio Type changes, frame publication, and slot cleanup. Audio processing code remains independent of connection state; FL Studio/Master GUI behavior still requires both plugins to be exercised in the DAW.

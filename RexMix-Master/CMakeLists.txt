@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(RexMixMaster VERSION 0.1.0)
+project(RexMixMaster VERSION 0.3.0)
 
 set(JUCE_SOURCE_DIR "$ENV{USERPROFILE}/source/JUCE" CACHE PATH "Path to the JUCE source tree")
 
@@ -29,6 +29,7 @@ target_sources(RexMixMaster
     PRIVATE
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
+        Source/CaptureSession.cpp
         Source/RexMixSharedMemory.cpp)
 
 target_compile_features(RexMixMaster PRIVATE cxx_std_17)
@@ -60,4 +61,12 @@ if(BUILD_TESTING)
     target_compile_features(RexMixSharedMemoryTest PRIVATE cxx_std_17)
     target_compile_definitions(RexMixSharedMemoryTest PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
     add_test(NAME RexMixSharedMemoryTest COMMAND RexMixSharedMemoryTest)
+
+    add_executable(RexMixCaptureSessionTest
+        tests/CaptureSessionTest.cpp
+        Source/CaptureSession.cpp)
+
+    target_include_directories(RexMixCaptureSessionTest PRIVATE Source)
+    target_compile_features(RexMixCaptureSessionTest PRIVATE cxx_std_17)
+    add_test(NAME RexMixCaptureSessionTest COMMAND RexMixCaptureSessionTest)
 endif()

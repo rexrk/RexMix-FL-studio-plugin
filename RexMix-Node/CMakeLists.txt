@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(RexMixNode VERSION 0.3.0)
+project(RexMixNode VERSION 0.4.1)
 
 set(JUCE_SOURCE_DIR "$ENV{USERPROFILE}/source/JUCE" CACHE PATH "Path to the JUCE source tree")
 
@@ -61,4 +61,4 @@ if(BUILD_TESTING)
     add_test(NAME RexMixNodeSharedMemoryTest COMMAND RexMixNodeSharedMemoryTest)
 endif()
 
-    target_link_libraries(RexMixNode PRIVATE ole32)
+target_link_libraries(RexMixNode PRIVATE ole32)

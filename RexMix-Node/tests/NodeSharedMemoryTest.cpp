@@ -47,6 +47,7 @@ public:
         region->header.totalSize = sizeof (rexmix::SharedMemoryRegion);
         region->header.maxNodes = rexmix::maxNodes;
         region->header.validState = rexmix::validState;
+        region->header.reserved[rexmix::masterPresenceReservedIndex] = 1;
         MemoryBarrier();
     }
 
@@ -87,6 +88,8 @@ int main()
         rexmix::NodePublisher withoutMaster (missingName.c_str());
         passed &= check (! withoutMaster.tryConnect(),
                          "Node does not connect to a missing Master mapping");
+        passed &= check (! withoutMaster.isConnected(),
+                         "a missing Master is reported as not connected");
 
         const auto mapping = OpenFileMappingW (FILE_MAP_READ, FALSE, missingName.c_str());
         passed &= check (mapping == nullptr,
@@ -101,11 +104,16 @@ int main()
         passed &= check (master.isReady(), "test Master creates a compatible mapping");
         if (! master.isReady())
             return 1;
+        passed &= check (master.get()->header.reserved[
+                             rexmix::masterPresenceReservedIndex] == 1,
+                         "test Master announces its presence");
 
         rexmix::NodePublisher first (mappingName.c_str());
         rexmix::NodePublisher second (mappingName.c_str());
         passed &= check (first.tryConnect(), "first Node attaches and claims a slot");
         passed &= check (second.tryConnect(), "second Node attaches and claims a slot");
+        passed &= check (first.isConnected() && second.isConnected(),
+                         "available Master is reported as connected");
         passed &= check (first.getSlotIndex() != second.getSlotIndex(),
                          "multiple Nodes claim different slots");
         passed &= check (master.get()->header.activeNodeCount == 2,
@@ -113,6 +121,44 @@ int main()
 
         const auto firstSlotIndex = first.getSlotIndex();
         const auto secondSlotIndex = second.getSlotIndex();
+        passed &= check (master.get()->nodes[firstSlotIndex].nodeType == rexmix::NodeType::other
+                             && master.get()->nodes[secondSlotIndex].nodeType == rexmix::NodeType::other,
+                         "new Node instances register with Other as the default type");
+
+        master.get()->nodes[firstSlotIndex].sequence = 1;
+        first.setNodeType (rexmix::NodeType::kick);
+        passed &= check (master.get()->nodes[firstSlotIndex].nodeType == rexmix::NodeType::other,
+                         "type update does not wait for a slot already being written");
+        master.get()->nodes[firstSlotIndex].sequence = 2;
+        first.retryPendingNodeTypeUpdate();
+        passed &= check (master.get()->nodes[firstSlotIndex].nodeType == rexmix::NodeType::kick,
+                         "pending type update succeeds on a later non-blocking attempt");
+
+        const std::array<rexmix::NodeType, 4> selectedTypes
+        {
+            rexmix::NodeType::kick,
+            rexmix::NodeType::bass808,
+            rexmix::NodeType::electricGuitar,
+            rexmix::NodeType::leadVocal
+        };
+
+        for (const auto selectedType : selectedTypes)
+        {
+            const auto sequenceBeforeTypeChange = master.get()->nodes[firstSlotIndex].frameSequence;
+            first.setNodeType (selectedType);
+            passed &= check (master.get()->nodes[firstSlotIndex].nodeType == selectedType,
+                             "audio type changes publish immediately to the existing slot");
+            passed &= check (master.get()->nodes[firstSlotIndex].frameSequence
+                                 == sequenceBeforeTypeChange,
+                             "type updates do not alter the analysis frame sequence");
+        }
+
+        second.setNodeType (rexmix::NodeType::subBass);
+        passed &= check (master.get()->nodes[secondSlotIndex].nodeType == rexmix::NodeType::subBass
+                             && master.get()->nodes[firstSlotIndex].nodeType
+                                 == rexmix::NodeType::leadVocal,
+                         "Node instances keep independent audio type selections");
+
         rexmix::NodeSlot frame {};
         frame.nodeType = rexmix::NodeType::audio;
         frame.samplePosition = 123456;
@@ -140,6 +186,9 @@ int main()
         passed &= check (firstSlot.nodeId == first.getNodeId()
                              && secondSlot.nodeId == second.getNodeId(),
                          "slot Node IDs match registering instances");
+        passed &= check (firstSlot.nodeType == rexmix::NodeType::leadVocal
+                             && secondSlot.nodeType == rexmix::NodeType::subBass,
+                         "published frames preserve each Node's selected audio type");
         passed &= check (firstSlot.registrationSessionId == first.getSessionId(),
                          "registration session ID is published");
         passed &= check (firstSlot.frameSequence == 2 && secondSlot.frameSequence == 1,
@@ -159,6 +208,29 @@ int main()
                          "disconnect releases the first Node slot");
         passed &= check (master.get()->nodes[secondSlotIndex].active == 1,
                          "disconnect leaves the other Node registered");
+
+        InterlockedExchange (reinterpret_cast<volatile LONG*> (
+                                 &master.get()->header.reserved[
+                                     rexmix::masterPresenceReservedIndex]), 0);
+        passed &= check (! first.tryConnect() && ! first.isConnected(),
+                         "Master presence clearing disconnects the first Node");
+        passed &= check (! second.tryConnect() && ! second.isConnected(),
+                         "Master presence clearing disconnects the second Node");
+        passed &= check (! first.publish (frame) && ! second.publish (frame),
+                         "disconnected Nodes stop shared-memory publication");
+        passed &= check (master.get()->header.activeNodeCount == 0,
+                         "each disconnected Node releases only its own slot");
+
+        InterlockedExchange (reinterpret_cast<volatile LONG*> (
+                                 &master.get()->header.reserved[
+                                     rexmix::masterPresenceReservedIndex]), 1);
+        passed &= check (first.tryConnect() && first.isConnected(),
+                         "Node reconnects when Master presence returns");
+        passed &= check (second.tryConnect() && second.isConnected(),
+                         "second Node reconnects independently");
+        passed &= check (first.getSlotIndex() != second.getSlotIndex()
+                             && master.get()->header.activeNodeCount == 2,
+                         "reconnected Nodes claim separate active slots");
     }
 
     {

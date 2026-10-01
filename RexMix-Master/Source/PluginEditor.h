@@ -32,6 +32,7 @@ private:
     RexMixMasterAudioProcessor& processor;
     juce::Viewport registryViewport;
     RexMixNodeRegistryView registryView;
+    juce::TextButton analyzeMixButton { "Analyze Mix" };
     std::array<rexmix::NodeSlot, rexmix::maxNodes> nodeSlots {};
     std::uint32_t activeNodeCount = 0;
 
