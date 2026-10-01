@@ -41,6 +41,19 @@ void RexMixAudioProcessorEditor::paint (juce::Graphics& graphics)
     graphics.drawText ("VST3  /  LIVE CHANNEL ANALYZER", 39, 47, 290, 18,
                        juce::Justification::centredLeft);
 
+    const auto connectionColour = processor.isMasterConnected()
+                                ? accentColour
+                                : juce::Colour { 0xffff7272 };
+    graphics.setColour (connectionColour);
+    graphics.fillEllipse (526.0f, 28.0f, 8.0f, 8.0f);
+    graphics.setColour (secondaryTextColour);
+    graphics.setFont (juce::Font (juce::FontOptions { 11.0f }));
+    graphics.drawText (processor.isMasterConnected()
+                           ? "MASTER MEMORY: CONNECTED"
+                           : "MASTER MEMORY: NOT FOUND",
+                       541, 22, getWidth() - 560, 20,
+                       juce::Justification::centredLeft);
+
     const auto cardWidth = (static_cast<float> (getWidth()) - 54.0f) * 0.5f;
     constexpr float cardHeight = 54.0f;
     constexpr float firstRowY = 78.0f;

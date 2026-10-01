@@ -15,6 +15,8 @@ RexMixAudioProcessor::RexMixAudioProcessor()
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
 {
+    nodePublisher.tryConnect();
+
     for (auto& value : rmsDb)
         value.store (silenceDb);
 
@@ -30,11 +32,23 @@ RexMixAudioProcessor::RexMixAudioProcessor()
 RexMixAudioProcessor::~RexMixAudioProcessor()
 {
     stopTimer();
+    nodePublisher.disconnect();
 }
 
 void RexMixAudioProcessor::prepareToPlay (double sampleRate, int)
 {
     hostSampleRate.store (sampleRate, std::memory_order_relaxed);
+    for (int band = 0; band < static_cast<int> (rexmix::spectrumBinCount); ++band)
+    {
+        const auto proportion = (static_cast<double> (band) + 0.5)
+                              / rexmix::spectrumBinCount;
+        const auto frequency = 20.0 * std::pow (1000.0, proportion);
+        spectrumSourceBins[static_cast<size_t> (band)] = juce::jlimit (
+            1,
+            spectrumBinCount - 1,
+            juce::roundToInt (frequency * fftSize / juce::jmax (1.0, sampleRate)));
+    }
+
     fftHistory.fill (0.0f);
     fftData.fill (0.0f);
     fftWritePosition = 0;
@@ -112,6 +126,9 @@ void RexMixAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     std::array<double, 2> sumOfSquares {};
     std::array<float, 2> peaks {};
+    double sumOfProducts = 0.0;
+    double sumOfMidSquares = 0.0;
+    double sumOfSideSquares = 0.0;
 
     const auto* left = numChannels > 0 ? buffer.getReadPointer (0) : nullptr;
     const auto* right = numChannels > 1 ? buffer.getReadPointer (1) : nullptr;
@@ -123,8 +140,14 @@ void RexMixAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
         sumOfSquares[0] += static_cast<double> (leftSample) * leftSample;
         sumOfSquares[1] += static_cast<double> (rightSample) * rightSample;
+        sumOfProducts += static_cast<double> (leftSample) * rightSample;
         peaks[0] = juce::jmax (peaks[0], std::abs (leftSample));
         peaks[1] = juce::jmax (peaks[1], std::abs (rightSample));
+
+        const auto midSample = (leftSample + rightSample) * 0.5f;
+        const auto sideSample = (leftSample - rightSample) * 0.5f;
+        sumOfMidSquares += static_cast<double> (midSample) * midSample;
+        sumOfSideSquares += static_cast<double> (sideSample) * sideSample;
 
         const auto monoSample = right != nullptr
                               ? (leftSample + rightSample) * 0.5f
@@ -146,6 +169,12 @@ void RexMixAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 juce::Decibels::gainToDecibels (peaks[static_cast<size_t> (channel)], silenceDb),
                 std::memory_order_relaxed);
         }
+
+        publishAnalysisFrame (sumOfProducts,
+                              sumOfMidSquares,
+                              sumOfSideSquares,
+                              sumOfSquares,
+                              numSamples);
     }
 }
 
@@ -185,8 +214,58 @@ void RexMixAudioProcessor::calculateSpectrum() noexcept
     }
 }
 
+void RexMixAudioProcessor::publishAnalysisFrame (double sumOfProducts,
+                                                  double sumOfMidSquares,
+                                                  double sumOfSideSquares,
+                                                  const std::array<double, 2>& sumOfSquares,
+                                                  int numSamples) noexcept
+{
+    if (! nodePublisher.isConnected())
+        return;
+
+    rexmix::NodeSlot frame {};
+    frame.nodeType = rexmix::NodeType::audio;
+    frame.samplePosition = hasSamplePosition() ? getSamplePosition() : -1;
+    frame.sampleRate = static_cast<float> (getHostSampleRate());
+
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        frame.rms[channel] = juce::Decibels::decibelsToGain (
+            getRmsDb (channel), silenceDb);
+        frame.peak[channel] = juce::Decibels::decibelsToGain (
+            getPeakDb (channel), silenceDb);
+    }
+
+    if (numSamples > 0 && getMeasuredChannelCount() > 1)
+    {
+        const auto energyProduct = sumOfSquares[0] * sumOfSquares[1];
+        if (energyProduct > 0.0)
+        {
+            frame.correlation = static_cast<float> (
+                juce::jlimit (-1.0, 1.0, sumOfProducts / std::sqrt (energyProduct)));
+        }
+
+        const auto midSideEnergy = sumOfMidSquares + sumOfSideSquares;
+        if (midSideEnergy > 0.0)
+        {
+            frame.stereoWidth = static_cast<float> (
+                juce::jlimit (0.0, 1.0, sumOfSideSquares / midSideEnergy));
+        }
+    }
+
+    for (int band = 0; band < static_cast<int> (rexmix::spectrumBinCount); ++band)
+    {
+        frame.spectrum[band] = juce::Decibels::decibelsToGain (
+            getSpectrumDb (spectrumSourceBins[static_cast<size_t> (band)]), silenceDb);
+    }
+
+    nodePublisher.publish (frame);
+}
+
 void RexMixAudioProcessor::timerCallback()
 {
+    nodePublisher.tryConnect();
+
     const auto timeText = hasPlaybackTime()
                         ? juce::String (getPlaybackTimeSeconds(), 3) + "s"
                         : "unavailable";
@@ -327,6 +406,11 @@ float RexMixAudioProcessor::getSpectrumDb (int bin) const noexcept
 {
     jassert (bin >= 0 && bin < spectrumBinCount);
     return spectrumDb[static_cast<size_t> (bin)].load (std::memory_order_relaxed);
+}
+
+bool RexMixAudioProcessor::isMasterConnected() const noexcept
+{
+    return nodePublisher.isConnected();
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

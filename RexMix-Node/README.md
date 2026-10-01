@@ -1,6 +1,6 @@
-# RexMix Node v0.2
+# RexMix Node v0.3
 
-A JUCE 8 CMake VST3 audio effect for Windows x64. It passes audio through unchanged with no added latency and displays host timing, per-channel RMS/peak, and a live FFT spectrum. It has no Master plugin, IPC, shared memory, or networking.
+A JUCE 8 CMake VST3 audio effect for Windows x64. It passes audio through unchanged with no added latency and displays host timing, per-channel RMS/peak, and a live FFT spectrum. When RexMix Master is available, it registers in the existing shared-memory registry and publishes the latest analysis frame.
 
 ## Requirements
 
@@ -15,14 +15,15 @@ By default, CMake looks for JUCE at `%USERPROFILE%\source\JUCE`. Override it wit
 Run these commands from a Visual Studio 2022 Developer PowerShell:
 
 ```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release --target RexMixNode_VST3
+cmake -S . -B build-v0.3 -G "Visual Studio 17 2022" -A x64
+cmake --build build-v0.3 --config Release --target RexMixNode_VST3 RexMixNodeSharedMemoryTest
+ctest --test-dir build-v0.3 -C Release --output-on-failure
 ```
 
 The VST3 bundle is generated at:
 
 ```text
-build\RexMixNode_artefacts\Release\VST3\RexMix Node.vst3
+build-v0.3\RexMixNode_artefacts\Release\VST3\RexMix Node.vst3
 ```
 
 The build does not copy or install the plugin into FL Studio.
@@ -33,6 +34,14 @@ The build does not copy or install the plugin into FL Studio.
 2. In FL Studio, open **Options > Manage plugins** and scan for plugins.
 3. Add **RexMix Node** as an effect on a mixer channel.
 
-The plugin logs a summary about every 500 ms through JUCE's logger. Host time and sample position are shown as unavailable when the host does not provide them. The sample position remains the host-provided timeline position; it is intended to timestamp analysis frames and synchronize Node data with a future RexMix Master.
+The plugin logs a summary about every 500 ms through JUCE's logger. Host time and sample position are shown as unavailable when the host does not provide them. The sample position remains the host-provided timeline position and is published with each analysis frame.
 
 When the host reports that transport is stopped, RMS, peak, and spectrum analysis pause and the last measured values remain visible. The UI identifies the stopped/held state. While playing, RMS and peak are measured from every audio callback and the UI applies light attack/release ballistics for readability. The callback's instantaneous buffer size is intentionally not shown because hosts may split processing into short sub-blocks.
+
+## Master shared memory
+
+The Node uses the exact RexMix Master v0.1 protocol: `Local\RexMix_SharedMemory_v1`, protocol/structure version 1, 64-byte header, 64 slots of 360 bytes, and 23,104 bytes total. The Node only calls `OpenFileMappingW`; it never creates or initializes the region. If Master is not present, analysis continues locally and the UI reports **MASTER MEMORY: NOT FOUND**. A message-thread timer retries connection every 500 ms; connection and slot discovery are never attempted from `processBlock()`.
+
+Each instance claims an available slot using a one-shot interlocked sequence-counter compare/exchange. It registers a per-instance Node ID and session ID, then publishes a latest-frame snapshot while playing. Frames include the host sample position (or -1 when unavailable), timestamp in Unix-epoch nanoseconds, monotonically increasing per-instance frame sequence, sample rate, linear RMS/peak, stereo width/correlation, and 64 logarithmically spaced FFT magnitudes. Pitch and transient strength remain zero because v0.2 does not calculate those metrics. The Node publishes no raw audio or history.
+
+The CTest fixture creates an isolated Master-compatible mapping for tests. It checks that a missing mapping is not created by the Node, multiple instances claim different slots, frames publish with increasing sequences, and disconnect frees only the instance's slot. DAW/FL Studio communication must still be verified with RexMix Master loaded in the same Windows session.

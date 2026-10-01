@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(RexMixNode VERSION 0.3.0)
+project(RexMixMaster VERSION 0.1.0)
 
 set(JUCE_SOURCE_DIR "$ENV{USERPROFILE}/source/JUCE" CACHE PATH "Path to the JUCE source tree")
 
@@ -10,13 +10,13 @@ endif()
 
 add_subdirectory("${JUCE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/JUCE")
 
-juce_add_plugin(RexMixNode
+juce_add_plugin(RexMixMaster
     COMPANY_NAME "RexMix"
-    BUNDLE_ID com.rexmix.node
+    BUNDLE_ID com.rexmix.master
     PLUGIN_MANUFACTURER_CODE RexM
-    PLUGIN_CODE rxN2
+    PLUGIN_CODE rxM1
     FORMATS VST3
-    PRODUCT_NAME "RexMix Node"
+    PRODUCT_NAME "RexMix Master"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
@@ -25,24 +25,26 @@ juce_add_plugin(RexMixNode
     COPY_PLUGIN_AFTER_BUILD FALSE
     VST3_CATEGORIES Fx Analyzer)
 
-target_sources(RexMixNode
+target_sources(RexMixMaster
     PRIVATE
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
         Source/RexMixSharedMemory.cpp)
 
-target_compile_features(RexMixNode PRIVATE cxx_std_17)
+target_compile_features(RexMixMaster PRIVATE cxx_std_17)
 
-target_compile_definitions(RexMixNode
+target_compile_definitions(RexMixMaster
     PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
-        JUCE_VST3_CAN_REPLACE_VST2=0)
+        JUCE_VST3_CAN_REPLACE_VST2=0
+    PRIVATE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX)
 
-target_link_libraries(RexMixNode
+target_link_libraries(RexMixMaster
     PRIVATE
         juce::juce_audio_utils
-        juce::juce_dsp
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
@@ -50,15 +52,12 @@ target_link_libraries(RexMixNode
 include(CTest)
 
 if(BUILD_TESTING)
-    add_executable(RexMixNodeSharedMemoryTest
-        tests/NodeSharedMemoryTest.cpp
+    add_executable(RexMixSharedMemoryTest
+        tests/SharedMemoryTest.cpp
         Source/RexMixSharedMemory.cpp)
 
-    target_include_directories(RexMixNodeSharedMemoryTest PRIVATE Source)
-    target_compile_features(RexMixNodeSharedMemoryTest PRIVATE cxx_std_17)
-    target_compile_definitions(RexMixNodeSharedMemoryTest PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_link_libraries(RexMixNodeSharedMemoryTest PRIVATE ole32)
-    add_test(NAME RexMixNodeSharedMemoryTest COMMAND RexMixNodeSharedMemoryTest)
+    target_include_directories(RexMixSharedMemoryTest PRIVATE Source)
+    target_compile_features(RexMixSharedMemoryTest PRIVATE cxx_std_17)
+    target_compile_definitions(RexMixSharedMemoryTest PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    add_test(NAME RexMixSharedMemoryTest COMMAND RexMixSharedMemoryTest)
 endif()
-
-    target_link_libraries(RexMixNode PRIVATE ole32)

@@ -3,6 +3,8 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
 
+#include "RexMixSharedMemory.h"
+
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -59,11 +61,17 @@ public:
     float getRmsDb(int channel) const noexcept;
     float getPeakDb(int channel) const noexcept;
     float getSpectrumDb(int bin) const noexcept;
+    bool isMasterConnected() const noexcept;
 
 private:
     void timerCallback() override;
     void pushSpectrumSample(float sample) noexcept;
     void calculateSpectrum() noexcept;
+    void publishAnalysisFrame (double sumOfProducts,
+                              double sumOfMidSquares,
+                              double sumOfSideSquares,
+                              const std::array<double, 2>& sumOfSquares,
+                              int numSamples) noexcept;
 
     juce::dsp::FFT fft { fftOrder };
     juce::dsp::WindowingFunction<float> window {
@@ -73,11 +81,13 @@ private:
 
     std::array<float, fftSize> fftHistory {};
     std::array<float, fftSize * 2> fftData {};
+    std::array<int, rexmix::spectrumBinCount> spectrumSourceBins {};
     int fftWritePosition = 0;
     int fftSamplesSinceTransform = 0;
     int fftSamplesCollected = 0;
+    rexmix::NodePublisher nodePublisher;
 
-    // These atomics are the future Node-to-RexMix-Master telemetry surface; v0.2 keeps it local.
+    // These values feed both the local UI and the latest Node-to-Master analysis frame.
     std::atomic<double> hostSampleRate { 0.0 };
     std::atomic<TransportState> transportState { TransportState::unknown };
     std::atomic<double> playbackTimeSeconds { 0.0 };
